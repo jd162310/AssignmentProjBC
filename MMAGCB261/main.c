@@ -12,7 +12,7 @@ int main(void) {
   // TODO - Initialise components and variables
   while (true) {
     // TODO - Repeated code here
-    printf("NO YOU LOSER\n");
+    printf("NO YOU are a big poo poo head\n");
   }
   return 0;
 }
