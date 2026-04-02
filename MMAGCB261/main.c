@@ -318,21 +318,27 @@ void execute_manual_movement() {
   if (key_w) { // y+
     axis_selection = 'y';
     forward = true;
+    printf("Y+\n");
   } else if (key_s) { // y-
     axis_selection = 'y';
     forward = false;
+    printf("Y-\n");
   } else if (key_d) { // x+
     axis_selection = 'x';
     forward = true;
+    printf("X+\n");
   } else if (key_a) { // x-
     axis_selection = 'x';
     forward = false;
+    printf("X-\n");
   } else if (key_e) { // z+
     axis_selection = 'z';
     forward = true;
+    printf("Z+\n");
   } else if (key_q) { // z-
     axis_selection = 'z';
     forward = false;
+    printf("Z-\n");
   } else if (key_p) { // s+
 
     speed += 25; // increases spindle speed by 25 percent
@@ -340,6 +346,7 @@ void execute_manual_movement() {
     speed = 100; // caps the speed at 100 percent
     spindle_speed = (speed * 65535) / 100; // sets spindle speed using percentage
     spindle_control(); // function call to update spindle speed 
+    printf("Spindle speed at %d percent\n", speed);
 
   } else if (key_o) { // s-
 
@@ -348,6 +355,7 @@ void execute_manual_movement() {
     speed = 0; // caps the speed from going negative
     spindle_speed = (speed * 65535) / 100; // sets spindle speed using percentage
     spindle_control(); // function call to update spindle speed 
+    printf("Spindle speed at %d percent\n", speed);
 
   } else if (key_l) { // display current position
     printf("Current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
