@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 
 // global variables
 // Define pins
@@ -49,6 +50,29 @@ int mode = 1; // defaults to full step mode
 
 // glodal variable for number of steps
 int steps = 0; // defaults to 0 steps
+
+//G-code manual mode variables
+float pos_x = 0, pos_y = 0, pos_z = 0;
+float steps_per_mm = 100; //placeholder, how many steps = 1mm of movement
+float step_size = 0.05; //How many mm to move each time
+int step_delay_us = 400; // delay between steps
+bool manual_mode = false; // true = manual, false = default
+
+// Key state tracking for manual mode
+bool key_w = false; // Y+
+bool key_s = false; // Y-
+bool key_a = false; // X-
+bool key_d = false; // X+
+bool key_o = false; // Z+
+bool key_p = false; // Z-
+
+
+// origin point variables
+float origin_x = 0;
+float origin_y = 0;
+float origin_z = 0;
+bool origin_set = false; // flag to indicate if origin has been set
+
 
 // Function for pin initialization
 void init_stepper_pins() {
@@ -107,6 +131,10 @@ void send_pulse_to_stepperz() {
 
 // Function to execute a number of steps
 void execute_n_steps() {
+  // calculate how many mm moved
+  float mm_moved = steps / steps_per_mm;
+  if (!forward)
+    mm_moved = -mm_moved;
   for (int i = 0; i < steps; i++) {
     switch (axis_selection) {
       case 'x':
@@ -123,6 +151,20 @@ void execute_n_steps() {
         break;
     }
    
+  }
+  switch (axis_selection) {
+    case 'x':
+    case 'X':
+      pos_x += mm_moved;
+      break;
+    case 'y':
+    case 'Y':
+      pos_y += mm_moved;
+      break;
+    case 'z':
+    case 'Z':
+      pos_z += mm_moved;
+      break;
   }
 }
 
@@ -196,15 +238,129 @@ void set_microstepping_mode() {
   }
 }
 
+// Functions for g-code
+
+// convert mm to steps
+int mm_to_steps(float mm) {
+  int steps = (int)(fabs(mm) * steps_per_mm); // fabs() = absolute value for floats
+  if (steps == 0 && mm != 0) steps = 1;
+  return steps;
+}
+
+// pulse functions for manual mode (uses step_delay_us instead of high/low delay for consistent speed)
+void pulse_x_gcode() {
+  gpio_put(X_STEP, 1);
+  sleep_us(step_delay_us);
+  gpio_put(X_STEP, 0);
+  sleep_us(step_delay_us);
+}
+
+void pulse_y_gcode() {
+  gpio_put(Y_STEP, 1);
+  sleep_us(step_delay_us);
+  gpio_put(Y_STEP, 0);
+  sleep_us(step_delay_us);
+}
+
+void pulse_z_gcode() {
+  gpio_put(Z_STEP, 1);
+  sleep_us(step_delay_us);
+  gpio_put(Z_STEP, 0);
+  sleep_us(step_delay_us);
+}
+
+// Move each axis
+void move_x(float mm) {
+  int steps = mm_to_steps(mm);
+  if (steps == 0) return;
+  gpio_put(X_DIR, mm > 0);
+  for (int i = 0; i < steps; i++) {
+    pulse_x_gcode();
+  }
+  pos_x += mm;
+}
+
+void move_y(float mm) {
+  int steps = mm_to_steps(mm);
+  if (steps == 0) return;
+  gpio_put(Y_DIR, mm > 0);
+  for (int i = 0; i < steps; i++) {
+    pulse_y_gcode();
+  }
+  pos_y += mm;
+}
+
+void move_z(float mm) {
+  int steps = mm_to_steps(mm);
+  if (steps == 0) return;
+  gpio_put(Z_DIR, mm > 0);
+  for (int i = 0; i < steps; i++) {
+    pulse_z_gcode();
+  }
+  pos_z += mm;
+}
+
 // function to process user inputs into the buffer array
 void process_input() {
+
+  // to handle manual mode
+  if (manual_mode) {
+    int c = getchar_timeout_us(0);
+   
+    if (c != PICO_ERROR_TIMEOUT) {
+      switch(c) {
+        case '1': step_size = 0.075; printf("Step size set to 0.075mm: IN PRECISE MODE\n"); break;
+        case '2': step_size = 0.3; printf("Step size set to 0.3mm: IN NORMAL MODE\n"); break;
+        case '3': step_size = 0.6; printf("Step size set to 0.6mm: IN FAST MODE\n"); break;
+        case 'w': case 'W': key_w = true; break;
+        case 's': case 'S': key_s = true; break;
+        case 'a': case 'A': key_a = true; break;
+        case 'd': case 'D': key_d = true; break;
+        case 'o': case 'O': key_o = true; break;
+        case 'p': case 'P': key_p = true; break;
+        case 'l': case 'L': printf("Current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z); break;
+        case 'h': case 'H':
+        origin_x = pos_x; origin_y = pos_y; origin_z = pos_z; origin_set = true;
+        printf("Origin set to current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", origin_x, origin_y, origin_z);
+        break;
+        case 'r': case 'R':
+        if (origin_set) {
+          move_x(origin_x - pos_x);
+          move_y(origin_y - pos_y);
+          move_z(origin_z - pos_z);
+          printf("Returned to origin - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
+        } else {
+          printf("Origin not set. Use 'setorigin' command to set the origin point first.\n");
+        }
+        break;
+        case 'm': case 'M': manual_mode = false;
+                  printf("Exiting manual mode. Returning to default mode.\n");
+                  break;
+                  default: break;
+      }
+    } else {
+      // release all keys when no input
+      key_w = key_a = key_s = key_d = key_o = key_p = false;
+    }
+    /// execute movement based on key states
+  if (key_w) move_y(step_size);
+  if (key_s) move_y(-step_size);
+  if (key_a) move_x(-step_size);
+  if (key_d) move_x(step_size);
+  if (key_o) move_z(step_size);
+  if (key_p) move_z(-step_size);
+ return;
+}
+ 
+ 
+
 
   if (command_complete) {
     return; // if command is already complete, ignore further input until processed
   }
 
   int c = getchar_timeout_us(0);
-  
+ 
   if (c != PICO_ERROR_TIMEOUT) {
     // process the input character
 
@@ -228,8 +384,9 @@ void process_input() {
     if (buffer_index < buffer_size - 1) {
 
       command_buffer[buffer_index++] = c; // adds character to buffer and increments index
+      if (c >= 32 && c <= 126) {
       printf("%c", c); // echoes the character back to the user
-      printf("[%d]", c); // prints the ASCII value of the character for debugging
+      }
 
      } else {
 
@@ -242,7 +399,14 @@ void process_input() {
 }
 
 // function to process and execute the command from the buffer
-void process_commend() {
+void process_command() {
+
+  // remove any non printable trash characters from the command buffer
+  for (int i = 0; i < buffer_index; i++) {
+    if (command_buffer[i] < 32 || command_buffer[i] > 126) {
+      command_buffer[i] = '\0'; // replace non-printable characters with null terminator
+    }
+  }
 
   // arrays to store different types of commands
   char command[10];
@@ -307,7 +471,42 @@ void process_commend() {
       execute_n_steps(); // function call to execute the number of steps from the commend
       printf("Executed %d steps\n", steps);
 
-    } else if (strcmp(command, "help") == 0) {  
+    } else if (strcmp(command, "manual") == 0 && count ==1) {
+      manual_mode = true; // sets manual mode to true
+      memset(command_buffer, 0, buffer_size);
+      buffer_index = 0;
+      command_complete = false;
+      printf("Entering manual mode\n");
+      printf("Use W/A/S/D for Y+/X-/Y-/X+ movement and O/P for Z+/Z- movement.\n");
+      printf("Press L to display current position\n");
+      printf("Press H to set current position as origin and R to return to origin.\n");
+      printf("Press m to exit manual mode and return to default mode.\n");
+
+    } else if (strcmp(command, "LC") == 0 && count == 1) {
+      printf("Current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
+
+    } else if (strcmp(command, "setorigin") == 0 && count == 1) {
+      //set current position as origin
+      origin_x = pos_x;
+      origin_y = pos_y;
+      origin_z = pos_z;
+      origin_set = true;
+      printf("Origin set to current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", origin_x, origin_y, origin_z);
+
+    } else if (strcmp(command, "reset") == 0 && count == 1) {
+      // move back to origin if set
+      if (!origin_set) {
+        printf("Origin not set. Use 'setorigin' command to set the origin point first.\n");
+      } else {
+        float move_x_mm = origin_x - pos_x;
+        float move_y_mm = origin_y - pos_y;
+        float move_z_mm = origin_z - pos_z;
+        move_x(move_x_mm);
+        move_y(move_y_mm);
+        move_z(move_z_mm);
+        printf("Returned to origin - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
+      }
+    }else if (strcmp(command, "help") == 0) {  
 
       printf("Available commands:\n");
       printf("delay high <value> - Set the high delay in microseconds\n");
@@ -351,7 +550,7 @@ int main(void) {
     // checks if command is complete
     if (command_complete) {
 
-      process_commend(); // function call to process the commend
+      process_command(); // function call to process the command
 
       // reset buffer and index for next command
       memset(command_buffer, 0, buffer_size); // clear the command buffer
@@ -362,4 +561,3 @@ int main(void) {
   }
   return 0;
 }
-
