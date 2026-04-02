@@ -55,7 +55,6 @@ int steps = 0; // defaults to 0 steps
 float pos_x = 0, pos_y = 0, pos_z = 0;
 float steps_per_mm = 100; //placeholder, how many steps = 1mm of movement
 float step_size = 0.05; //How many mm to move each time
-int step_delay_us = 400; // delay between steps
 bool manual_mode = false; // true = manual, false = default
 
 // Key state tracking for manual mode
@@ -133,8 +132,8 @@ void send_pulse_to_stepperz() {
 void execute_n_steps() {
   // calculate how many mm moved
   float mm_moved = steps / steps_per_mm;
-  if (!forward)
-    mm_moved = -mm_moved;
+  if (!forward) 
+    mm_moved = -mm_moved; 
   for (int i = 0; i < steps; i++) {
     switch (axis_selection) {
       case 'x':
@@ -150,7 +149,6 @@ void execute_n_steps() {
         send_pulse_to_stepperz();
         break;
     }
-   
   }
   switch (axis_selection) {
     case 'x':
