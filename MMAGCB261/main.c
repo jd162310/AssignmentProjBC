@@ -57,11 +57,14 @@ uint16_t spindle_speed = 0; // variable to store the spindle speed as a PWM
 float pos_x = 0, pos_y = 0, pos_z = 0; // axis postion variables
 float steps_per_mm = 40; // number of steps per mm of movement
 float step_size = 0.025; // mm for each step
-float mm = 0; // variable to store mm value 
+float mm = 0; // variable to store mm value
+int spindle_percent = 0; // variable to store spindle speed in percent for manual mode
+int manual_step_delay_us = 400;
 
 // flags for different modes
 bool manual_mode = false; // flag to set manual mode on or off
 bool default_mode = true; // flag for default mode
+bool auto_mode_active = false; // flag to indicate if auto mode is active
 
 // key state tracking
 bool key_w = false; // Y+
@@ -75,8 +78,9 @@ bool key_p = false; // S-
 bool key_l = false; // display position
 bool key_h = false; // set origin
 bool key_r = false; // return to origin
+bool key_u = false; // unset origin key
 
-// origin variable initialization 
+// origin variable initialization
 float x_origin = 0, y_origin = 0, z_origin = 0;
 bool origin_set = false; // flag for setting origin
 
@@ -123,11 +127,11 @@ void init_stepper_pins() {
 
 void init_spindle_motor() {
 
-  gpio_set_function(SPINDLE_PWM_PIN, GPIO_FUNC_PWM); // sets spindle pin to pwm 
+  gpio_set_function(SPINDLE_PWM_PIN, GPIO_FUNC_PWM); // sets spindle pin to pwm
 
   slice_num = pwm_gpio_to_slice_num(SPINDLE_PWM_PIN); // finds the slice number for the pwm pin
-  
-  pwm_clear_irq(slice_num); // clears the interrupt flag for the slice 
+ 
+  pwm_clear_irq(slice_num); // clears the interrupt flag for the slice
 
   pwm_config config = pwm_get_default_config(); // gets defualt PWM configuration
 
@@ -166,7 +170,29 @@ void send_pulse_to_stepperz() {
   gpio_put(Z_STEP, 0);
   sleep_us(low_delay_us);
 
-}  
+}
+
+// Pulse functions for manual mode
+void manual_pulse_x() {
+  gpio_put(X_STEP, 1);
+  sleep_us(manual_step_delay_us);
+  gpio_put(X_STEP, 0);
+  sleep_us(manual_step_delay_us);
+}
+
+void manual_pulse_y() {
+  gpio_put(Y_STEP, 1);
+  sleep_us(manual_step_delay_us);
+  gpio_put(Y_STEP, 0);
+  sleep_us(manual_step_delay_us);
+}
+
+void manual_pulse_z() {
+  gpio_put(Z_STEP, 1);
+  sleep_us(manual_step_delay_us);
+  gpio_put(Z_STEP, 0);
+  sleep_us(manual_step_delay_us);
+}
 
 // Function for spindle motor control
 void spindle_control() {
@@ -182,20 +208,32 @@ void execute_n_steps() {
   float mm_moved = steps / steps_per_mm;
 
   if (!forward) {
-    mm_moved = -mm_moved; // turns the mm_moved into negative if going backwards 
+    mm_moved = -mm_moved; // turns the mm_moved into negative if going backwards
   }
 
   for (int i = 0; i < steps; i++) {
 
     switch (axis_selection) {
       case 'x': case 'X':
+      if (manual_mode) {
+        manual_pulse_x();
+      } else {
         send_pulse_to_stepperx();
-        break;
+      }
+      break;
       case 'y': case 'Y':
+      if (manual_mode) {
+        manual_pulse_y();
+      } else {
         send_pulse_to_steppery();
+      }
         break;
       case 'z': case 'Z':
+      if (manual_mode) {
+        manual_pulse_z();
+      } else {
         send_pulse_to_stepperz();
+      }
         break;
     }
   }
@@ -298,7 +336,7 @@ void mm_to_steps() {
   }
   return;
 }
-  
+ 
 // function to execute movement based on key states
 void execute_manual_movement() {
 
@@ -318,47 +356,47 @@ void execute_manual_movement() {
   if (key_w) { // y+
     axis_selection = 'y';
     forward = true;
-    printf("Y+\n");
   } else if (key_s) { // y-
     axis_selection = 'y';
     forward = false;
-    printf("Y-\n");
   } else if (key_d) { // x+
     axis_selection = 'x';
     forward = true;
-    printf("X+\n");
   } else if (key_a) { // x-
     axis_selection = 'x';
     forward = false;
-    printf("X-\n");
   } else if (key_e) { // z+
     axis_selection = 'z';
     forward = true;
-    printf("Z+\n");
   } else if (key_q) { // z-
     axis_selection = 'z';
     forward = false;
-    printf("Z-\n");
   } else if (key_p) { // s+
 
-    speed += 25; // increases spindle speed by 25 percent
-    if (speed > 100) 
-    speed = 100; // caps the speed at 100 percent
-    spindle_speed = (speed * 65535) / 100; // sets spindle speed using percentage
-    spindle_control(); // function call to update spindle speed 
-    printf("Spindle speed at %d percent\n", speed);
+    spindle_percent += 25; // increases spindle speed by 25 percent
+    if (spindle_percent > 100) {
+      spindle_percent = 100; // caps the speed at 100 percent
+    }
+    spindle_speed = (spindle_percent * 65535) / 100; // sets spindle speed using percentage
+    spindle_control(); // function call to update spindle speed
+    printf("Spindle speed at %d percent\n", spindle_percent);
 
   } else if (key_o) { // s-
 
-    speed -= 25; // decreases spindle speed by 25 percent
-    if (speed < 0) 
-    speed = 0; // caps the speed from going negative
-    spindle_speed = (speed * 65535) / 100; // sets spindle speed using percentage
-    spindle_control(); // function call to update spindle speed 
-    printf("Spindle speed at %d percent\n", speed);
+    spindle_percent -= 25; // decreases spindle speed by 25 percent
+    if (spindle_percent < 0) {
+      spindle_percent = 0; // caps the speed from going negative
+    }
+    spindle_speed = (spindle_percent * 65535) / 100; // sets spindle speed using percentage
+    spindle_control(); // function call to update spindle speed
+    printf("Spindle speed at %d percent\n", spindle_percent);
 
   } else if (key_l) { // display current position
     printf("Current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
+  }
+  else if (key_u) { // unset origin
+    origin_set = false;
+    printf("Origin unset. Press 'H' to set new origin point.\n");
   } else if (key_h) { // sets origin
     x_origin = pos_x;
     y_origin = pos_y;
@@ -368,7 +406,7 @@ void execute_manual_movement() {
   } else if (key_r) { // returns to origin
 
     if (origin_set) {
-      
+     
       // calculates the distance to move back to origin
       float delta_x = x_origin - pos_x;
       float delta_y = y_origin -pos_y;
@@ -398,7 +436,7 @@ void execute_manual_movement() {
         // prints the current position after returning to origin
         printf("Returned to origin - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
       } else {
-        // if already at origin, just print the current position 
+        // if already at origin, just print the current position
         printf("Already at origin - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
       }
     } else {
@@ -410,14 +448,232 @@ void execute_manual_movement() {
     set_stepper_direction(); // sets the direction with a function call
     mm_to_steps(); // converts the mm movemnet into steps
     execute_n_steps(); // executes the steps to move the motor
-    } 
+    }
 
     // resets key states after movement is executed to stop continuous movement
-    key_w = key_s = key_a = key_d = key_q = key_e = key_o = key_p = key_l = key_h = key_r = false;
+    key_w = key_s = key_a = key_d = key_q = key_e = key_o = key_p = key_l = key_h = key_r = key_u = false;
 
     sleep_ms(100); // small delay to prevent multiple inputs from being processed too quickly
 
 
+}
+
+//TESTING
+void move_xy(float mm_x, float mm_y) {
+    int steps_x = (int)(fabs(mm_x) * steps_per_mm);
+    int steps_y = (int)(fabs(mm_y) * steps_per_mm);
+    if (steps_x == 0 && steps_y == 0) return;
+   
+    // Set directions
+    gpio_put(X_DIR, mm_x > 0);
+    gpio_put(Y_DIR, mm_y > 0);
+   
+    int max_steps = steps_x > steps_y ? steps_x : steps_y;
+   
+    for (int i = 0; i < max_steps; i++) {
+        if (i < steps_x) {
+            gpio_put(X_STEP, 1);
+            sleep_us(500);
+            gpio_put(X_STEP, 0);
+        }
+        if (i < steps_y) {
+            gpio_put(Y_STEP, 1);
+            sleep_us(500);
+            gpio_put(Y_STEP, 0);
+        }
+        sleep_us(500);
+    }
+   
+    pos_x += mm_x;
+    pos_y += mm_y;
+}
+
+void parse_and_execute_gcode(char *line) {
+  char cmd[10];
+  float x = 0, y = 0, z = 0, f = 0;
+  char *ptr = line;
+  int i = 0;
+while(*ptr && *ptr != ' ' && i < 9) {
+    cmd[i++] = *ptr++;
+  }
+  cmd[i] = '\0'; // null-terminate the command string
+  ptr = line;
+  while(*ptr) {
+    if(*ptr == 'X' || *ptr == 'x') {
+      x = atof(ptr + 1);
+    }
+    if(*ptr == 'Y' || *ptr == 'y') {
+      y = atof(ptr + 1);
+    }
+    if(*ptr == 'Z' || *ptr == 'z') {
+      z = atof(ptr + 1);
+    }
+    if(*ptr == 'F' || *ptr == 'f') {
+      f = atof(ptr + 1);
+    }
+    ptr++;
+  }
+  // parse the G-code line
+ printf("G-code: %s | X: %.2f Y: %.2f Z: %.2f F: %.2f\n", cmd, x, y, z, f);
+ if (f > 0) {
+    int delay = 200000 / f;
+    if (delay < 100) delay = 100;
+    if (delay > 2000) delay = 2000;
+    printf("feed rate: %.0f mm/min (delay: %d us)\n", f, delay);
+ }
+ if (strcmp(cmd, "G00") == 0 || strcmp(cmd, "G0") == 0) {
+    // rapid move
+    if (x != 0) {
+      axis_selection = 'x';
+      forward = (x > 0);
+      mm = fabs(x);
+      mm_to_steps();
+      set_stepper_direction();
+      execute_n_steps();
+    }
+    if (y != 0) {
+      axis_selection = 'y';
+      forward = (y > 0);
+      mm = fabs(y);
+      mm_to_steps();
+      set_stepper_direction();
+      execute_n_steps();
+    }
+    if (z != 0) {
+      axis_selection = 'z';
+      forward = (z > 0);
+      mm = fabs(z);
+      mm_to_steps();
+      set_stepper_direction();
+      execute_n_steps();
+    }
+    printf("rapid  to X: %.2f Y: %.2f Z: %.2f\n", pos_x, pos_y, pos_z);
+
+}
+else if (strcmp(cmd, "G01") == 0 || strcmp(cmd, "G1") == 0) {
+    // linear move
+    if (x !=0 || y != 0) {
+      move_xy(x, y);
+    }
+    if (z != 0) {
+      axis_selection = 'z';
+      forward = (z > 0);
+      mm = fabs(z);
+      mm_to_steps();
+      set_stepper_direction();
+      execute_n_steps();
+    }
+    printf("linear move to X: %.2f Y: %.2f Z: %.2f\n", pos_x, pos_y, pos_z);
+  } else {
+    printf("Unsupported G-code command: %s\n", cmd);
+  }
+}
+// TO be able to draw more complicated shapes
+void draw_arc(float end_x, float end_y, float i, float j, int clockwise) {
+  //calculate the center of the arc
+  float centre_x = pos_x + i;
+  float centre_y = pos_y + j;
+
+  float radius = sqrt(i*i + j*j);
+
+  // calculate the start and end angles
+  float start_angle = atan2(pos_y - centre_y, pos_x - centre_x);
+  float end_angle = atan2(end_y - centre_y, end_x - centre_x);
+
+  // number of steps for smooth arc
+  int num_steps = 50;
+
+  float angle;
+  float angle_step;
+  // clockwise angle increases
+  if (clockwise) {
+    if (start_angle <= end_angle) {
+      end_angle = end_angle - 2 * M_PI;
+    }
+    angle_step = (start_angle - end_angle) / num_steps;
+    angle = start_angle;
+    for (int step = 0; step < num_steps; step++) {
+      angle -= angle_step;
+      float x = centre_x + radius * cos(angle);
+      float y = centre_y + radius * sin(angle);
+
+      //calculate the mm to move for this step
+      float dx = x - pos_x;
+      float dy = y - pos_y;
+
+      if (dx != 0) {
+        axis_selection = 'x';
+        forward = (dx > 0);
+        mm = fabs(dx);
+        mm_to_steps();
+        set_stepper_direction();
+        execute_n_steps();
+      }
+      if (dy != 0) {
+        axis_selection = 'y';
+        forward = (dy > 0);
+        mm = fabs(dy);
+        mm_to_steps();
+        set_stepper_direction();
+        execute_n_steps();
+       }
+      }
+  } // anti-clockwise angle decreases
+  else {
+    if (start_angle >= end_angle) {
+      end_angle = end_angle + 2 * M_PI;
+    }
+    angle_step = (end_angle - start_angle) / num_steps;
+    angle = start_angle;
+    for (int step = 0; step < num_steps; step++) {
+      angle += angle_step;
+      float x = centre_x + radius * cos(angle);
+      float y = centre_y + radius * sin(angle);
+
+      //calculate the mm to move for this step
+      float dx = x - pos_x;
+      float dy = y - pos_y;
+
+      if (dx != 0) {
+        axis_selection = 'x';
+        forward = (dx > 0);
+        mm = fabs(dx);
+        mm_to_steps();
+        set_stepper_direction();
+        execute_n_steps();
+      }
+      if (dy != 0) {
+        axis_selection = 'y';
+        forward = (dy > 0);
+        mm = fabs(dy);
+        mm_to_steps();
+        set_stepper_direction();
+        execute_n_steps();
+       }
+      }
+  }
+  // final exact move to end point
+  float dx = end_x - pos_x;
+  float dy = end_y - pos_y;
+
+  if (dx != 0) {
+    axis_selection = 'x';
+    forward = (dx > 0);
+    mm = fabs(dx);
+    mm_to_steps();
+    set_stepper_direction();
+    execute_n_steps();
+  }
+  if (dy != 0) {
+    axis_selection = 'y';
+    forward = (dy > 0);
+    mm = fabs(dy);
+    mm_to_steps();
+    set_stepper_direction();
+    execute_n_steps();
+  }
+  pos_x = end_x;
+  pos_y = end_y;
 }
 
 // function to process user inputs into the buffer array
@@ -428,13 +684,13 @@ void process_input() {
   }
 
   int c = getchar_timeout_us(0);
-  
+ 
   if (c != PICO_ERROR_TIMEOUT) {
 
     // key state tracking for manual mode
     if (manual_mode) {
     switch(c) {
-        case 'w': case 'W': 
+        case 'w': case 'W':
         key_w = true;
         break;
         case 's': case 'S':
@@ -444,7 +700,7 @@ void process_input() {
         key_a = true;
         break;
         case 'd': case 'D':
-        key_d = true; 
+        key_d = true;
         break;
         case 'o': case 'O':
         key_o = true;
@@ -467,7 +723,10 @@ void process_input() {
         case 'r': case 'R':
         key_r = true;
         break;
-        case '1': 
+        case 'u': case 'U':
+        key_u = true;
+        break;
+        case '1':
         step_size = 0.025;
         mode = 1;
         set_microstepping_mode();
@@ -481,7 +740,7 @@ void process_input() {
         break;
         case '3':
         step_size = 0.00625;
-        mode = 4; 
+        mode = 4;
         set_microstepping_mode();
         printf("Step size set to 0.00625mm: QUARTER STEP MODE\n");
         break;
@@ -503,12 +762,20 @@ void process_input() {
         set_microstepping_mode();
         printf("Step size set to 0.00078125mm: THIRTY-SECOND STEP MODE\n");
         break;
+        case '7':
+        step_size = 1.5;
+        printf("regular mode\n");
+        break;
+        case '8':
+        step_size = 3.0;
+        printf("fast mode\n");
+        break;
         case 'm': case 'M':
         manual_mode = false;
         default_mode = true;
         printf("Exiting manual mode. Returning to default mode.\n");
         break;
-        default: 
+        default:
         break;
     }
   }
@@ -529,6 +796,7 @@ void process_input() {
 
       buffer_index--; // moves index back to remove last character
       command_buffer[buffer_index] = '\0'; // null-terminate the string after backspace
+      printf("\b \b"); // erases the last character from the console for user feedback
       return;
 
     }
@@ -537,7 +805,9 @@ void process_input() {
     if (buffer_index < buffer_size - 1) {
 
       command_buffer[buffer_index++] = c; // adds character to buffer and increments index
-
+      if (default_mode && c >= 32 && c <= 126) { // only print visible characters in default mode
+        printf("%c", c); // echo the character back to the user for feedback
+      }
      } else {
 
       printf("Error: Command buffer overflow. Maximum command length is %d characters.\n", buffer_size - 1);
@@ -549,7 +819,7 @@ void process_input() {
 }
 
 // function to process and execute the command from the buffer
-void process_commend() {
+void process_command() {
 
   // arrays to store different types of commands
   char command[10];
@@ -613,7 +883,7 @@ void process_commend() {
       execute_n_steps(); // function call to execute the number of steps from the commend
       printf("Executed %d steps\n", steps);
 
-    } else if (strcmp(command, "spin") == 0 && count == 2) { 
+    } else if (strcmp(command, "spin") == 0 && count == 2) {
 
       printf("RAW INPUT: %s\n", command_buffer);
       printf("Parsed speed string: %s\n", value_str);
@@ -632,9 +902,57 @@ void process_commend() {
       // sets the spindle speed to whatever percent the user inputs
       spindle_speed = (65535 * speed) / 100;
       printf("spindle speed set to: %d\n", spindle_speed); // debug helper
-      spindle_control(); 
+      spindle_control();
       printf("spindle speed at %d percent\n", speed);
 
+    } else if (strcmp(command, "setorigin") == 0 && count == 1) {
+
+      x_origin = pos_x;
+      y_origin = pos_y;
+      z_origin = pos_z;
+      origin_set = true;
+      printf("Origin set to current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", x_origin, y_origin, z_origin);
+
+     } else if (strcmp(command, "reset") == 0 && count == 1) {
+      if (!origin_set) {
+        printf("Origin not set. Use 'setorigin' command to set the origin first.\n");
+      } else {
+        // calculates the distance to move back to origin
+        float delta_x = x_origin - pos_x;
+        float delta_y = y_origin - pos_y;
+        float delta_z = z_origin - pos_z;
+
+        if (delta_x != 0) {
+          axis_selection = 'x';
+          forward = (delta_x > 0);
+          mm = fabs(delta_x);
+          mm_to_steps();
+          set_stepper_direction();
+          execute_n_steps();
+        }
+        if (delta_y != 0) {
+          axis_selection = 'y';
+          forward = (delta_y > 0);
+          mm = fabs(delta_y);
+          mm_to_steps();
+          set_stepper_direction();
+          execute_n_steps();
+        }
+        if (delta_z != 0) {
+          axis_selection = 'z';
+          forward = (delta_z > 0);
+          mm = fabs(delta_z);
+          mm_to_steps();
+          set_stepper_direction();
+          execute_n_steps();
+        }
+        printf("Returned to origin - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
+      }
+    } else if (strcmp(command, "unsetorigin") == 0 && count == 1) {
+      origin_set = false;
+      printf("Origin unset. Use 'setorigin' command to set new origin point.\n");
+    } else if (strcmp(command, "coordinates") == 0 && count == 1) {
+      printf("Current position - X: %.2f mm, Y: %.2f mm, Z: %.2f mm\n", pos_x, pos_y, pos_z);
     } else if (strcmp(command, "help") == 0) {  
 
       printf("Available commands:\n");
@@ -646,9 +964,44 @@ void process_commend() {
       printf("rev <steps> - Move reverse a specified number of steps\n");
       printf("spin <value> - set the spindle speed\n");
       printf("all values must be between 0-1000 except for spin which is 0-50\n");
+      printf("coordinates - Display the current position of the axes\n");
+      printf("setorigin - Set the current position as the origin point\n");
+      printf("reset - Return to the origin point\n");
       printf("enter manual to switch to manual mode\n");
       printf("help - Show this help message\n");
 
+    } else if (strcmp(command, "gcode") == 0) {
+      // send raw g-code
+      char *gcode_line = command_buffer + 6; // skip "gcode"
+     
+      char *ptr = gcode_line;
+      char single_cmd[50];
+      int cmd_index = 0;
+
+      while(*ptr) {
+        if (*ptr == 'G' && cmd_index > 0) {
+          single_cmd[cmd_index] = '\0'; // null-terminate the command string
+          parse_and_execute_gcode(single_cmd); // parse and execute the G-code command
+          cmd_index = 0; // reset command index for next command
+        }
+        single_cmd[cmd_index++] = *ptr++;
+      }
+      if (cmd_index > 0) {
+        single_cmd[cmd_index] = '\0';
+        parse_and_execute_gcode(single_cmd);
+      }
+    } else if (strcmp(command, "auto") == 0 && count == 1) {
+      printf("Auto mode ready\n");
+      auto_mode_active = true; // sets auto mode flag to true to start executing gcode
+    } else if (auto_mode_active) {
+      // execute gcode line sent from matlab
+      if (strcmp(command, "END") == 0) {
+        auto_mode_active = false; // ends auto mode when "END" command is received
+        printf("Auto mode complete\n");
+      } else {
+        parse_and_execute_gcode(command_buffer); \
+        printf("line done\n");
+      }
     } else if (strcmp(command, "manual") == 0 && count == 1) {
 
       manual_mode = true; // sets manual mode to true
@@ -660,6 +1013,7 @@ void process_commend() {
       printf("Press L to display current position\n");
       printf("Press H to set current position as origin and R to return to origin.\n");
       printf("Press m to exit manual mode and return to default mode.\n");
+      printf("Press 1-6 to change step size and microstepping mode. Press 7 for regular mode and 8 for fast mode.\n");
     } else {
 
       printf("Invalid command or missing value\n");
@@ -680,11 +1034,11 @@ int main(void) {
 
   sleep_ms(2000); // delay to allow time for serial to connect
 
-  // function calls to initalize pins 
-  init_stepper_pins(); 
+  // function calls to initalize pins
+  init_stepper_pins();
   init_spindle_motor();
 
-  printf("enter help for a list of commands\n"); 
+  printf("enter help for a list of commands\n");
 
   while (true) {
 
@@ -701,7 +1055,7 @@ int main(void) {
     // checks if command is complete
     if (command_complete) {
 
-      process_commend(); // function call to process the commend
+      process_command(); // function call to process the command
 
       // reset buffer and index for next command
       memset(command_buffer, 0, buffer_size); // clear the command buffer
@@ -710,6 +1064,6 @@ int main(void) {
 
     }
   }
-} 
+}
   return 0;
 }
