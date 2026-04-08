@@ -337,7 +337,7 @@ void mm_to_steps() {
   return;
 }
  
-// function to execute movement based on key states
+// function to execute movement based on key states ///////////////////////////////////////////////////////
 void execute_manual_movement() {
 
   mm = step_size; // sets the mm variable to the step size for each movement
@@ -458,7 +458,7 @@ void execute_manual_movement() {
 
 }
 
-//TESTING
+//TESTING /////////////////////////////////////////////////////////////////////////////
 void move_xy(float mm_x, float mm_y) {
     int steps_x = (int)(fabs(mm_x) * steps_per_mm);
     int steps_y = (int)(fabs(mm_y) * steps_per_mm);
@@ -576,8 +576,8 @@ void draw_arc(float end_x, float end_y, float i, float j, int clockwise) {
 
   float radius = sqrt(i*i + j*j);
 
-  // calculate the start and end angles
-  float start_angle = atan2(pos_y - centre_y, pos_x - centre_x);
+  // calculate the start and end angles in radians
+  float start_angle = atan2(pos_y - centre_y, pos_x - centre_x); 
   float end_angle = atan2(end_y - centre_y, end_x - centre_x);
 
   // number of steps for smooth arc
